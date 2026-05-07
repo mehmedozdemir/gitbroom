@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -50,12 +52,20 @@ class BranchDetailPanel(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(280)
         self.setMaximumWidth(420)
+        self._repo_path: str | None = None
+        self._current_branch: BranchInfo | None = None
+        self._commit_worker = None
+        self._commit_data: list[dict] = []
         self._build_ui()
         self.clear()
+
+    def set_repo_path(self, path: str) -> None:
+        self._repo_path = path
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -68,16 +78,49 @@ class BranchDetailPanel(QWidget):
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         scroll.setWidget(container)
-        outer.addWidget(scroll)
+        outer.addWidget(scroll, stretch=1)
+
+        # Commit mini-list (pinned at bottom, outside scroll)
+        self._commit_section = QWidget()
+        commit_layout = QVBoxLayout(self._commit_section)
+        commit_layout.setContentsMargins(8, 4, 8, 8)
+        commit_layout.setSpacing(4)
+
+        hdr_row = QWidget()
+        hdr_layout = QHBoxLayout(hdr_row)
+        hdr_layout.setContentsMargins(0, 0, 0, 0)
+        self._commit_section_label = QLabel("SON COMMİTLER")
+        self._commit_section_label.setStyleSheet(
+            "color: #89b4fa; font-weight: bold; font-size: 11px; letter-spacing: 1px;"
+        )
+        self._commit_status_label = QLabel("")
+        self._commit_status_label.setStyleSheet("color: #6c6f85; font-size: 10px;")
+        hdr_layout.addWidget(self._commit_section_label)
+        hdr_layout.addStretch()
+        hdr_layout.addWidget(self._commit_status_label)
+        commit_layout.addWidget(hdr_row)
+
+        self._commit_list = QListWidget()
+        self._commit_list.setMaximumHeight(130)
+        self._commit_list.setFrameShape(QFrame.Shape.NoFrame)
+        self._commit_list.setStyleSheet("font-size: 11px;")
+        self._commit_list.itemDoubleClicked.connect(self._on_commit_double_clicked)
+        commit_layout.addWidget(self._commit_list)
+
+        outer.addWidget(self._commit_section)
+        self._commit_section.setVisible(False)
 
     def clear(self) -> None:
         self._clear_layout()
+        self._current_branch = None
+        self._commit_section.setVisible(False)
         placeholder = QLabel("Branch seçin")
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         placeholder.setStyleSheet("color: #6c6f85; font-size: 13px;")
         self._layout.addWidget(placeholder)
 
     def show_branch(self, branch: BranchInfo) -> None:
+        self._current_branch = branch
         self._clear_layout()
         self._add_header(branch)
         self._add_risk_badge(branch)
@@ -87,6 +130,57 @@ class BranchDetailPanel(QWidget):
         if branch.gitlab_mr_id:
             self._add_gitlab_info(branch)
         self._layout.addStretch()
+        self._load_commits(branch)
+
+    # ── Commit mini-list ─────────────────────────────────────────────────────
+
+    def _load_commits(self, branch: BranchInfo) -> None:
+        if not self._repo_path:
+            return
+        from gitbroom.ui.workers import CommitLoader
+        if self._commit_worker and self._commit_worker.isRunning():
+            self._commit_worker.terminate()
+            self._commit_worker.wait()
+
+        self._commit_list.clear()
+        self._commit_status_label.setText("yükleniyor…")
+        self._commit_section.setVisible(True)
+
+        self._commit_worker = CommitLoader(self._repo_path, branch.name, max_count=5)
+        self._commit_worker.commits_loaded.connect(self._on_commits_loaded)
+        self._commit_worker.error.connect(self._on_commits_error)
+        self._commit_worker.start()
+
+    def _on_commits_loaded(self, commits: list) -> None:
+        self._commit_data = commits
+        self._commit_list.clear()
+        self._commit_status_label.setText(f"{len(commits)} commit")
+
+        for c in commits:
+            date_str = c["date"].strftime("%d.%m.%y")
+            text = f"{c['short_sha']}  {c['message'][:40]}  · {c['author'][:18]}  {date_str}"
+            item = QListWidgetItem(text)
+            item.setToolTip(c["message"])
+            item.setData(Qt.ItemDataRole.UserRole, c)
+            self._commit_list.addItem(item)
+
+    def _on_commits_error(self, _message: str) -> None:
+        self._commit_status_label.setText("yüklenemedi")
+
+    def _on_commit_double_clicked(self, item: QListWidgetItem) -> None:
+        commit = item.data(Qt.ItemDataRole.UserRole)
+        if not commit or not self._repo_path:
+            return
+        from gitbroom.ui.widgets.commit_detail_dialog import CommitDetailDialog
+        dlg = CommitDetailDialog(
+            repo_path=self._repo_path,
+            commit_sha=commit["sha"],
+            short_sha=commit["short_sha"],
+            commit_message=commit["message"],
+            author=commit["author"],
+            parent_widget=self,
+        )
+        dlg.exec()
 
     # ── Section builders ─────────────────────────────────────────────────────
 

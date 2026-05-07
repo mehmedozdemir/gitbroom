@@ -211,6 +211,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_repo_changed(self, path: str) -> None:
         self._repo_path = path
+        self._detail_panel.set_repo_path(path)
         self._detail_panel.clear()
         self._start_scan(path)
 

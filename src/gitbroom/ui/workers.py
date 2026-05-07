@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -84,6 +85,97 @@ class RepoScanWorker(QThread):
 
         except Exception as e:
             logger.error("Scan failed: %s", e)
+            self.error.emit(str(e))
+
+
+class CommitLoader(QThread):
+    commits_loaded = pyqtSignal(list)   # list[dict]
+    error = pyqtSignal(str)
+
+    def __init__(self, repo_path: str, branch_name: str, max_count: int = 5) -> None:
+        super().__init__()
+        self._repo_path = repo_path
+        self._branch_name = branch_name
+        self._max_count = max_count
+
+    def run(self) -> None:
+        try:
+            repo = RepoManager().load(self._repo_path)
+            commits = []
+            for commit in repo.iter_commits(self._branch_name, max_count=self._max_count):
+                commits.append({
+                    "sha": commit.hexsha,
+                    "short_sha": commit.hexsha[:7],
+                    "message": commit.message.split("\n")[0][:72],
+                    "author": commit.author.name,
+                    "date": datetime.fromtimestamp(commit.committed_date),
+                    "parent_sha": commit.parents[0].hexsha if commit.parents else None,
+                })
+            self.commits_loaded.emit(commits)
+        except Exception as e:
+            logger.error("CommitLoader failed: %s", e)
+            self.error.emit(str(e))
+
+
+class CommitDiffLoader(QThread):
+    diff_loaded = pyqtSignal(list)   # list[dict]
+    error = pyqtSignal(str)
+
+    def __init__(self, repo_path: str, commit_sha: str) -> None:
+        super().__init__()
+        self._repo_path = repo_path
+        self._commit_sha = commit_sha
+
+    def run(self) -> None:
+        try:
+            repo = RepoManager().load(self._repo_path)
+            commit = repo.commit(self._commit_sha)
+
+            if commit.parents:
+                # Forward diff: parent → commit (shows what this commit changed)
+                diffs = commit.parents[0].diff(commit, create_patch=True)
+                first_commit = False
+            else:
+                # First commit: diff against empty tree (files appear as deleted;
+                # we flip change_type to 'A' below for correct display)
+                from git import NULL_TREE
+                diffs = commit.diff(NULL_TREE, create_patch=True)
+                first_commit = True
+
+            files = []
+            for d in diffs:
+                path = d.b_path or d.a_path or ""
+                raw = d.diff if d.diff else b""
+                try:
+                    diff_text = raw.decode("utf-8", errors="replace")
+                except Exception:
+                    diff_text = "(binary file)"
+
+                lines = diff_text.splitlines()
+                additions = sum(1 for l in lines if l.startswith("+") and not l.startswith("+++"))
+                deletions = sum(1 for l in lines if l.startswith("-") and not l.startswith("---"))
+
+                if first_commit:
+                    change_type = "A"
+                elif d.new_file:
+                    change_type = "A"
+                elif d.deleted_file:
+                    change_type = "D"
+                elif d.renamed_file:
+                    change_type = "R"
+                else:
+                    change_type = d.change_type or "M"
+
+                files.append({
+                    "path": path,
+                    "change_type": change_type,
+                    "diff_text": diff_text,
+                    "additions": additions,
+                    "deletions": deletions,
+                })
+            self.diff_loaded.emit(files)
+        except Exception as e:
+            logger.error("CommitDiffLoader failed: %s", e)
             self.error.emit(str(e))
 
 
