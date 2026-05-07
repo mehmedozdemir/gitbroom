@@ -73,3 +73,4 @@ class AppSettings:
     create_backup_tag: bool = True
     confirm_remote_delete: bool = True
     show_merged_by_default: bool = True
+    enable_rebase_detection: bool = False

@@ -29,6 +29,7 @@ class DeleteDialog(QDialog):
         self._branches = branches
         self._repo_path = repo_path
         self._settings = settings
+        self._deletion_results: list = []
         self._countdown = _COUNTDOWN_SECS
         self.setWindowTitle("⚠️  Branch Silme Onayı")
         self.setMinimumWidth(480)
@@ -153,6 +154,7 @@ class DeleteDialog(QDialog):
             errors = [e for r in results for e in r.errors]
             deleted = sum(1 for r in results if r.local_deleted or r.remote_deleted)
 
+            self._deletion_results = results
             if errors:
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
@@ -174,3 +176,7 @@ class DeleteDialog(QDialog):
 
     def create_backup(self) -> bool:
         return self._chk_backup.isChecked()
+
+    @property
+    def deletion_results(self) -> list:
+        return self._deletion_results

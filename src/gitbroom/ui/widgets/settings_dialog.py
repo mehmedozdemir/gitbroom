@@ -124,6 +124,12 @@ class SettingsDialog(QDialog):
         self._chk_show_merged.setChecked(self._settings.show_merged_by_default)
         form.addRow(self._chk_show_merged)
 
+        self._chk_rebase = QCheckBox(
+            "Rebase merge tespiti (yavaş — büyük repolar için önerilmez)"
+        )
+        self._chk_rebase.setChecked(self._settings.enable_rebase_detection)
+        form.addRow(self._chk_rebase)
+
         return tab
 
     # ── Slots ─────────────────────────────────────────────────────────────────
@@ -142,6 +148,7 @@ class SettingsDialog(QDialog):
             create_backup_tag=self._chk_backup.isChecked(),
             confirm_remote_delete=self._chk_remote_confirm.isChecked(),
             show_merged_by_default=self._chk_show_merged.isChecked(),
+            enable_rebase_detection=self._chk_rebase.isChecked(),
         )
         try:
             save_settings(updated)

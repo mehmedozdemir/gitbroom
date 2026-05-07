@@ -60,6 +60,16 @@ class BranchTable(QWidget):
     def set_branches(self, branches: list[BranchInfo]) -> None:
         self._model.set_branches(branches)
 
+    def clear(self) -> None:
+        self._model.clear()
+
+    def add_branch(self, branch: BranchInfo) -> None:
+        self._model.add_branch(branch)
+
+    def remove_branches(self, names: set[str]) -> None:
+        self._model.remove_branches(names)
+        self.selection_changed.emit(len(self._model.checked_branches()))
+
     def apply_filter(
         self,
         text: str = "",

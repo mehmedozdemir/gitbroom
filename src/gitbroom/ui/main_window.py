@@ -221,6 +221,7 @@ class MainWindow(QMainWindow):
             self._worker.cancel()
             self._worker.wait()
 
+        self._branch_table.clear()
         self._progress.setVisible(True)
         self._progress.setRange(0, 0)
         self._status_bar.showMessage(f"Taranıyor: {path} …")
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
 
         self._worker = RepoScanWorker(path, self._settings)
         self._worker.progress.connect(self._on_scan_progress)
+        self._worker.branch_found.connect(self._on_branch_found)
         self._worker.finished.connect(self._on_scan_finished)
         self._worker.error.connect(self._on_scan_error)
         self._worker.start()
@@ -238,10 +240,13 @@ class MainWindow(QMainWindow):
         self._progress.setValue(current)
         self._status_bar.showMessage(f"Analiz ediliyor: {name} ({current}/{total})")
 
+    @pyqtSlot(object)
+    def _on_branch_found(self, branch: object) -> None:
+        self._branch_table.add_branch(branch)  # type: ignore[arg-type]
+
     @pyqtSlot(list)
     def _on_scan_finished(self, branches: list) -> None:
         self._progress.setVisible(False)
-        self._branch_table.set_branches(branches)
         n = len(branches)
         self._status_bar.showMessage(f"Tamamlandı — {n} branch bulundu.")
         logger.info("Scan complete: %d branches in %s", n, self._repo_path)
@@ -279,7 +284,14 @@ class MainWindow(QMainWindow):
         dialog = DeleteDialog(branches, self._repo_path, self._settings, self)
         if dialog.exec():
             self._detail_panel.clear()
-            self._start_scan(self._repo_path)
+            deleted_names = {
+                r.branch_name
+                for r in dialog.deletion_results
+                if r.local_deleted or r.remote_deleted
+            }
+            if deleted_names:
+                self._branch_table.remove_branches(deleted_names)
+                self._status_bar.showMessage(f"{len(deleted_names)} branch silindi.")
 
     def _apply_filter(self, mode: str) -> None:
         self._btn_filter_all.setChecked(mode == "all")

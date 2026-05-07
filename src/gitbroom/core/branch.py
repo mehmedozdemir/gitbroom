@@ -13,7 +13,6 @@ class BranchCollector:
         """Collect local and remote branches, excluding HEAD and default branch."""
         branches: dict[str, dict] = {}
 
-        # Local branches
         for ref in repo.heads:
             if ref.name == default_branch:
                 continue
@@ -25,19 +24,15 @@ class BranchCollector:
                 "tracking_remote": ref.tracking_branch().name if ref.tracking_branch() else None,
             }
 
-        # Remote branches
         for remote in repo.remotes:
             for ref in remote.refs:
-                # Strip "origin/" prefix
                 parts = ref.name.split("/", 1)
                 if len(parts) < 2:
                     continue
                 name = parts[1]
                 if name in ("HEAD", default_branch):
                     continue
-
                 if name in branches:
-                    # Merge into existing local entry
                     branches[name]["is_remote"] = True
                 else:
                     branches[name] = {
@@ -60,15 +55,65 @@ _PLACEHOLDER_RISK = RiskScore(
 
 
 class BranchAnalyzer:
+    """
+    Analyze branches for merge status, ahead/behind counts, etc.
+
+    Call prepare() once before analyzing many branches — it pre-computes
+    expensive data (merged set, default-branch trees) so per-branch work
+    is O(1) lookups instead of repeated git traversals.
+    """
+
+    def __init__(self) -> None:
+        self._merged_names: set[str] = set()
+        self._default_trees: set[str] = set()
+        self._default_commit: Any = None
+        self._default_name: str = ""
+        self._enable_rebase: bool = False
+        self._prepared: bool = False
+
+    # ── Public API ───────────────────────────────────────────────────────────
+
+    def prepare(self, repo: Repo, default_branch_ref: Any, enable_rebase: bool = False) -> None:
+        """
+        Pre-compute per-repo data. Call once before the per-branch loop.
+
+        P1: Batch merged-branch detection via `git branch --merged` (one CLI
+            call instead of one merge_base() per branch).
+        P2: Build a set of default-branch commit trees for O(1) squash
+            detection instead of iterating 200 commits per branch.
+        """
+        self._enable_rebase = enable_rebase
+        self._default_commit = default_branch_ref.commit
+        self._default_name = default_branch_ref.name
+
+        # P1 — batch standard-merge detection
+        self._merged_names = self._fetch_merged_names(repo, default_branch_ref.name)
+
+        # P2 — pre-compute squash detection set (tree SHAs)
+        try:
+            self._default_trees = {
+                c.tree.hexsha
+                for c in default_branch_ref.commit.iter_items(
+                    repo, default_branch_ref, max_count=100
+                )
+            }
+        except Exception:
+            self._default_trees = set()
+
+        self._prepared = True
+
     def analyze(self, branch_dict: dict, repo: Repo, default_branch_ref: Any) -> BranchInfo:
-        """Analyze a branch dict returned by BranchCollector and produce BranchInfo."""
+        """Analyze a single branch. Call prepare() first for best performance."""
+        if not self._prepared:
+            self.prepare(repo, default_branch_ref)
+
         commit = branch_dict["commit"]
         commit_date = datetime.fromtimestamp(commit.committed_date, tz=timezone.utc)
 
-        is_merged, merge_type, merged_at = self._get_merge_status(
-            branch_dict, repo, default_branch_ref
-        )
-        ahead, behind = self._get_ahead_behind(commit, repo, default_branch_ref)
+        is_merged, merge_type = self._get_merge_status(branch_dict["name"], commit, repo)
+
+        # P4 — ahead/behind via fast git rev-list (no merge_base needed)
+        ahead, behind = self._get_ahead_behind(commit, repo)
 
         return BranchInfo(
             name=branch_dict["name"],
@@ -80,128 +125,99 @@ class BranchAnalyzer:
             last_commit_message=commit.message.strip().splitlines()[0],
             is_merged=is_merged,
             merge_type=merge_type,
-            merged_at=merged_at,
-            merged_into=default_branch_ref.name if is_merged else None,
+            merged_at=None,
+            merged_into=self._default_name if is_merged else None,
             ahead_count=ahead,
             behind_count=behind,
-            risk_score=_PLACEHOLDER_RISK,  # scorer fills this in later
+            risk_score=_PLACEHOLDER_RISK,
         )
 
+    # ── Merge detection ──────────────────────────────────────────────────────
+
     def _get_merge_status(
-        self, branch_dict: dict, repo: Repo, default_branch_ref: Any
-    ) -> tuple[bool, MergeType, datetime | None]:
-        commit = branch_dict["commit"]
-        default_commit = default_branch_ref.commit
+        self, branch_name: str, commit: Any, repo: Repo
+    ) -> tuple[bool, MergeType]:
+        # P1 — O(1) set lookup (pre-computed)
+        if branch_name in self._merged_names:
+            return True, MergeType.STANDARD
 
-        # 1. Standard merge
-        if self._is_standard_merged(commit, default_commit, repo):
-            return True, MergeType.STANDARD, self._find_merge_date(commit, repo, default_commit)
+        # P2 — O(1) tree-SHA lookup (pre-computed)
+        if commit.tree.hexsha in self._default_trees:
+            return True, MergeType.SQUASH
 
-        # 2. Squash merge
-        if self._detect_squash_merge(commit, repo, default_branch_ref):
-            return True, MergeType.SQUASH, None
+        # P3 — rebase detection is opt-in (disabled by default, expensive)
+        if self._enable_rebase and self._detect_rebase_merge(commit, repo):
+            return True, MergeType.REBASE
 
-        # 3. Rebase merge
-        if self._detect_rebase_merge(commit, repo, default_branch_ref):
-            return True, MergeType.REBASE, None
+        return False, MergeType.NOT_MERGED
 
-        return False, MergeType.NOT_MERGED, None
-
-    def _is_standard_merged(self, branch_commit: Any, default_commit: Any, repo: Repo) -> bool:
+    def _detect_rebase_merge(self, branch_commit: Any, repo: Repo) -> bool:
+        """Opt-in. Compares patch-ids; only enabled when AppSettings.enable_rebase_detection=True."""
         try:
-            merge_base = repo.merge_base(branch_commit, default_commit)
-            return bool(merge_base) and merge_base[0] == branch_commit
-        except Exception:
-            return False
-
-    def _find_merge_date(
-        self, branch_commit: Any, repo: Repo, default_commit: Any
-    ) -> datetime | None:
-        """Walk default branch to find the merge commit that introduced branch_commit."""
-        try:
-            for commit in default_commit.iter_items(repo, default_commit, max_count=500):
-                if len(commit.parents) > 1:
-                    for parent in commit.parents:
-                        if parent == branch_commit:
-                            return datetime.fromtimestamp(
-                                commit.committed_date, tz=timezone.utc
-                            )
-        except Exception:
-            pass
-        return None
-
-    def _detect_squash_merge(
-        self, branch_commit: Any, repo: Repo, default_branch_ref: Any
-    ) -> bool:
-        """
-        Squash merge leaves the combined tree state on default branch.
-        Compare branch tip tree against recent default branch commit trees.
-        Max 200 commits for performance.
-        """
-        try:
-            branch_tree = branch_commit.tree
-            for commit in default_branch_ref.commit.iter_items(
-                repo, default_branch_ref, max_count=200
-            ):
-                if commit.tree == branch_tree:
-                    return True
-            return False
-        except Exception:
-            return False
-
-    def _detect_rebase_merge(
-        self, branch_commit: Any, repo: Repo, default_branch_ref: Any
-    ) -> bool:
-        """
-        Rebase merge re-applies patches. Compare patch-ids of branch commits
-        against recent default branch commits. Max 50 branch commits checked.
-        """
-        try:
-            branch_patches = set(
+            branch_patches = {
                 self._patch_id(c)
-                for c in branch_commit.iter_items(repo, branch_commit, max_count=50)
-                if c.parents  # skip root commits
-            )
+                for c in branch_commit.iter_items(repo, branch_commit, max_count=20)
+                if c.parents
+            }
             if not branch_patches:
                 return False
 
-            default_patches = set(
+            default_patches = {
                 self._patch_id(c)
-                for c in default_branch_ref.commit.iter_items(
-                    repo, default_branch_ref, max_count=200
-                )
+                for c in self._default_commit.iter_items(repo, self._default_commit, max_count=100)
                 if c.parents
-            )
-            # If all branch patches appear in default, it's a rebase merge
-            return bool(branch_patches) and branch_patches.issubset(default_patches)
+            }
+            return branch_patches.issubset(default_patches)
         except Exception:
             return False
 
     def _patch_id(self, commit: Any) -> str:
-        """Stable identifier based on diff content (author-independent)."""
         if not commit.parents:
             return commit.hexsha
+        import hashlib
         diff = commit.parents[0].diff(commit, create_patch=True)
         content = "".join(d.diff.decode("utf-8", errors="replace") for d in diff)
-        import hashlib
         return hashlib.sha1(content.encode()).hexdigest()
 
-    def _get_ahead_behind(
-        self, branch_commit: Any, repo: Repo, default_branch_ref: Any
-    ) -> tuple[int, int]:
-        try:
-            default_commit = default_branch_ref.commit
-            merge_base = repo.merge_base(branch_commit, default_commit)
-            if not merge_base:
-                return 0, 0
-            base = merge_base[0]
+    # ── Ahead / behind ───────────────────────────────────────────────────────
 
-            ahead = sum(
-                1 for _ in branch_commit.iter_items(repo, f"{base}..{branch_commit}")
-            )
-            behind = sum(
-                1 for _ in default_commit.iter_items(repo, f"{base}..{default_commit}")
-            )
+    def _get_ahead_behind(self, branch_commit: Any, repo: Repo) -> tuple[int, int]:
+        """
+        P4 — use `git rev-list --count` (native C, no Python iteration).
+        No merge_base() call required.
+        """
+        try:
+            default_sha = self._default_commit.hexsha
+            branch_sha = branch_commit.hexsha
+            ahead = int(repo.git.rev_list("--count", f"{default_sha}..{branch_sha}"))
+            behind = int(repo.git.rev_list("--count", f"{branch_sha}..{default_sha}"))
             return ahead, behind
         except Exception:
             return 0, 0
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _fetch_merged_names(repo: Repo, default_ref_name: str) -> set[str]:
+        """Run git branch --merged once to get all merged branch names."""
+        merged: set[str] = set()
+        try:
+            out = repo.git.branch("--merged", default_ref_name)
+            for line in out.splitlines():
+                name = line.strip().lstrip("* ")
+                if name:
+                    merged.add(name)
+        except Exception:
+            pass
+        try:
+            # Remote branches merged into default
+            out = repo.git.branch("-r", "--merged", default_ref_name)
+            for line in out.splitlines():
+                name = line.strip()
+                if "/" in name:
+                    name = name.split("/", 1)[1]  # strip "origin/" prefix
+                    if name not in ("HEAD",):
+                        merged.add(name)
+        except Exception:
+            pass
+        return merged

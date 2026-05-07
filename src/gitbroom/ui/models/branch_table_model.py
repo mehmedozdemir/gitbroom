@@ -104,6 +104,29 @@ class BranchTableModel(QAbstractTableModel):
         self._checked.clear()
         self.endResetModel()
 
+    def clear(self) -> None:
+        self.beginResetModel()
+        self._branches = []
+        self._filtered = []
+        self._checked.clear()
+        self.endResetModel()
+
+    def add_branch(self, branch: BranchInfo) -> None:
+        """Append a single branch — used for streaming results as they arrive."""
+        row = len(self._filtered)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._branches.append(branch)
+        self._filtered.append(branch)
+        self.endInsertRows()
+
+    def remove_branches(self, names: set[str]) -> None:
+        """Remove branches by name — used after deletion to avoid full rescan."""
+        self.beginResetModel()
+        self._branches = [b for b in self._branches if b.name not in names]
+        self._filtered = [b for b in self._filtered if b.name not in names]
+        self._checked -= names
+        self.endResetModel()
+
     def filter(
         self,
         text: str = "",

@@ -83,5 +83,6 @@ def save_settings(settings: AppSettings, path: Path | None = None) -> None:
         f"create_backup_tag = {str(settings.create_backup_tag).lower()}\n",
         f"confirm_remote_delete = {str(settings.confirm_remote_delete).lower()}\n",
         f"show_merged_by_default = {str(settings.show_merged_by_default).lower()}\n",
+        f"enable_rebase_detection = {str(settings.enable_rebase_detection).lower()}\n",
     ]
     target.write_text("".join(lines), encoding="utf-8")
