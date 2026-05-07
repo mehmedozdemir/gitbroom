@@ -146,7 +146,9 @@ class BranchDetailPanel(QWidget):
         self._commit_status_label.setText("yükleniyor…")
         self._commit_section.setVisible(True)
 
-        self._commit_worker = CommitLoader(self._repo_path, branch.name, max_count=5)
+        self._commit_worker = CommitLoader(
+            self._repo_path, branch.name, max_count=5, is_local=branch.is_local
+        )
         self._commit_worker.commits_loaded.connect(self._on_commits_loaded)
         self._commit_worker.error.connect(self._on_commits_error)
         self._commit_worker.start()

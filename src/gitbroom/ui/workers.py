@@ -92,17 +92,33 @@ class CommitLoader(QThread):
     commits_loaded = pyqtSignal(list)   # list[dict]
     error = pyqtSignal(str)
 
-    def __init__(self, repo_path: str, branch_name: str, max_count: int = 5) -> None:
+    def __init__(self, repo_path: str, branch_name: str, max_count: int = 5, is_local: bool = True) -> None:
         super().__init__()
         self._repo_path = repo_path
         self._branch_name = branch_name
         self._max_count = max_count
+        self._is_local = is_local
+
+    def _resolve_ref(self, repo) -> str:
+        """Return the git ref string that points to this branch."""
+        if self._is_local:
+            return self._branch_name
+        # Remote-only: try origin/ prefix; if repo has a different remote, fall back
+        for remote in repo.remotes:
+            candidate = f"{remote.name}/{self._branch_name}"
+            try:
+                repo.commit(candidate)
+                return candidate
+            except Exception:
+                continue
+        return self._branch_name  # last resort — will likely fail with a useful error
 
     def run(self) -> None:
         try:
             repo = RepoManager().load(self._repo_path)
+            ref = self._resolve_ref(repo)
             commits = []
-            for commit in repo.iter_commits(self._branch_name, max_count=self._max_count):
+            for commit in repo.iter_commits(ref, max_count=self._max_count):
                 commits.append({
                     "sha": commit.hexsha,
                     "short_sha": commit.hexsha[:7],
