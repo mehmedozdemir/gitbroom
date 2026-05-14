@@ -82,3 +82,7 @@ class RepoSelector(QWidget):
 
     def current_path(self) -> str:
         return self._combo.currentText().strip()
+
+    def set_path(self, path: str) -> None:
+        """Set repo path and trigger scan (used for session restore and programmatic open)."""
+        self._set_repo(path)

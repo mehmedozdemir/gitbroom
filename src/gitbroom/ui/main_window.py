@@ -1,35 +1,34 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 
-from PyQt6.QtCore import QByteArray, QSettings, Qt, pyqtSlot
+from PyQt6.QtCore import QByteArray, QSettings, Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
-    QPushButton,
     QSizePolicy,
-    QSplitter,
     QStatusBar,
+    QTabBar,
+    QTabWidget,
     QToolBar,
-    QVBoxLayout,
+    QPushButton,
     QWidget,
 )
 
 from gitbroom.core.models import AppSettings
 from gitbroom.ui.theme.icons import icon
 from gitbroom.ui.theme.theme import ThemeManager
-from gitbroom.ui.widgets.branch_detail import BranchDetailPanel
-from gitbroom.ui.widgets.branch_table import BranchTable
-from gitbroom.ui.widgets.repo_selector import RepoSelector
+from gitbroom.ui.widgets.repo_tab import RepoTab
 
 logger = logging.getLogger(__name__)
 
 _QSETTINGS_ORG = "GitBroom"
 _QSETTINGS_APP = "GitBroom"
+_NEW_TAB_LABEL = "Yeni Sekme"
 
 
 class MainWindow(QMainWindow):
@@ -37,52 +36,23 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._settings = settings
         self._theme = theme_manager
-        self._repo_path: str | None = None
-        self._worker = None
+        self._git_user_name, self._git_user_email = self._fetch_git_user_info()
         self._setup_window()
         self._build_ui()
+        self._setup_shortcuts()
         self._restore_state()
+
+    # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _setup_window(self) -> None:
         self.setWindowTitle("GitBroom — Git Branch Temizleyici")
         self.resize(1200, 750)
         self.setMinimumSize(900, 600)
-        self._git_user_name, self._git_user_email = self._fetch_git_user_info()
 
     def _build_ui(self) -> None:
         self._build_toolbar()
-
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
-
-        self._repo_selector = RepoSelector(self._settings)
-        self._repo_selector.repo_changed.connect(self._on_repo_changed)
-        root.addWidget(self._repo_selector)
-
-        root.addWidget(self._build_filter_bar())
-        root.addWidget(self._build_progress_bar())
-
-        self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.setChildrenCollapsible(False)
-
-        self._branch_table = BranchTable()
-        self._branch_table.selection_changed.connect(self._on_selection_changed)
-        self._branch_table.delete_requested.connect(self._on_delete_requested)
-        self._branch_table.branch_selected.connect(self._on_branch_selected)
-        self._splitter.addWidget(self._branch_table)
-
-        self._detail_panel = BranchDetailPanel()
-        self._splitter.addWidget(self._detail_panel)
-
-        self._splitter.setStretchFactor(0, 3)
-        self._splitter.setStretchFactor(1, 1)
-
-        root.addWidget(self._splitter, stretch=1)
-        root.addWidget(self._build_action_bar())
         self._build_status_bar()
+        self._build_tab_widget()
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Ana Araç Çubuğu")
@@ -124,242 +94,116 @@ class MainWindow(QMainWindow):
         self._btn_theme.clicked.connect(self._on_toggle_theme)
         toolbar.addWidget(self._btn_theme)
 
-    def _build_filter_bar(self) -> QWidget:
-        bar = QWidget()
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+    def _build_tab_widget(self) -> None:
+        self._tabs = QTabWidget()
+        self._tabs.setTabsClosable(True)
+        self._tabs.setMovable(True)
+        self._tabs.setDocumentMode(True)
+        self._tabs.tabCloseRequested.connect(self._on_close_tab)
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
-        self._btn_filter_all = QPushButton("≡  Hepsi")
-        self._btn_filter_mine = QPushButton("👤  Benim")
-        self._btn_filter_merged = QPushButton("✓  Merged")
-        self._btn_filter_stale = QPushButton("⏱  Stale")
+        # "+" button on the tab bar
+        self._btn_new_tab = QPushButton("+")
+        self._btn_new_tab.setFixedSize(28, 24)
+        self._btn_new_tab.setToolTip("Yeni sekme  (Ctrl+T)")
+        self._btn_new_tab.setFlat(True)
+        self._btn_new_tab.clicked.connect(self._add_tab)
+        self._tabs.setCornerWidget(self._btn_new_tab, Qt.Corner.TopRightCorner)
 
-        for btn in (
-            self._btn_filter_all,
-            self._btn_filter_mine,
-            self._btn_filter_merged,
-            self._btn_filter_stale,
-        ):
-            btn.setCheckable(True)
-            layout.addWidget(btn)
+        self.setCentralWidget(self._tabs)
 
-        self._btn_filter_all.setChecked(True)
-        self._btn_filter_all.clicked.connect(lambda: self._apply_filter("all"))
-        self._btn_filter_mine.clicked.connect(lambda: self._apply_filter("mine"))
-        self._btn_filter_merged.clicked.connect(lambda: self._apply_filter("merged"))
-        self._btn_filter_stale.clicked.connect(lambda: self._apply_filter("stale"))
-
-        layout.addStretch()
-
-        self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText("Branch adı veya yazar ara...")
-        self._search_box.setFixedWidth(240)
-        self._search_box.textChanged.connect(self._on_search)
-        layout.addWidget(QLabel("🔍"))
-        layout.addWidget(self._search_box)
-        return bar
-
-    def _build_progress_bar(self) -> QProgressBar:
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        self._progress.setTextVisible(False)
-        self._progress.setFixedHeight(4)
-        return self._progress
-
-    def _build_action_bar(self) -> QWidget:
-        bar = QWidget()
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(0, 4, 0, 0)
-
-        self._selection_label = QLabel("Seçili: 0 branch")
-        layout.addWidget(self._selection_label)
-
-        self._btn_select_all = QPushButton("Tümünü Seç")
-        self._btn_select_all.setIcon(icon("check_all"))
-        self._btn_select_all.clicked.connect(lambda: self._branch_table.check_all(True))
-        layout.addWidget(self._btn_select_all)
-
-        self._btn_deselect_all = QPushButton("Seçimi Temizle")
-        self._btn_deselect_all.setIcon(icon("uncheck"))
-        self._btn_deselect_all.setShortcut("Escape")
-        self._btn_deselect_all.clicked.connect(lambda: self._branch_table.check_all(False))
-        layout.addWidget(self._btn_deselect_all)
-
-        layout.addStretch()
-
-        self._btn_delete = QPushButton("Seçilileri Sil")
-        self._btn_delete.setIcon(icon("trash"))
-        self._btn_delete.setObjectName("dangerButton")
-        self._btn_delete.setEnabled(False)
-        self._btn_delete.setShortcut("Delete")
-        self._btn_delete.clicked.connect(self._on_delete_selected)
-        layout.addWidget(self._btn_delete)
-        return bar
+        # Open one default tab
+        self._add_tab()
 
     def _build_status_bar(self) -> None:
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
         self._status_bar.showMessage("Hazır — Bir repo seçin ve 'Tara' butonuna tıklayın.")
 
-    # ── State persistence ────────────────────────────────────────────────────
+    def _setup_shortcuts(self) -> None:
+        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self._add_tab)
+        QShortcut(QKeySequence("Ctrl+W"), self).activated.connect(self._close_current_tab)
+
+    # ── Tab management ────────────────────────────────────────────────────────
+
+    def _add_tab(self, repo_path: str | None = None) -> RepoTab:
+        tab = RepoTab(self._settings, self)
+        tab.title_changed.connect(lambda title, t=tab: self._on_tab_title_changed(t, title))
+        tab.status_changed.connect(self._status_bar.showMessage)
+
+        idx = self._tabs.addTab(tab, _NEW_TAB_LABEL)
+        self._tabs.setCurrentIndex(idx)
+
+        if repo_path:
+            tab.open_repo(repo_path)
+
+        return tab
+
+    def _close_current_tab(self) -> None:
+        self._on_close_tab(self._tabs.currentIndex())
+
+    def _on_close_tab(self, index: int) -> None:
+        if self._tabs.count() <= 1:
+            return  # always keep at least one tab
+        tab = self._tabs.widget(index)
+        if isinstance(tab, RepoTab):
+            tab.cancel_scan()
+        self._tabs.removeTab(index)
+
+    def _on_tab_changed(self, index: int) -> None:
+        tab = self._tabs.widget(index)
+        if isinstance(tab, RepoTab) and tab.current_repo_path():
+            self._status_bar.showMessage(f"Aktif repo: {tab.current_repo_path()}")
+        else:
+            self._status_bar.showMessage("Hazır — Bir repo seçin ve 'Tara' butonuna tıklayın.")
+
+    def _on_tab_title_changed(self, tab: RepoTab, title: str) -> None:
+        idx = self._tabs.indexOf(tab)
+        if idx >= 0:
+            self._tabs.setTabText(idx, title)
+            path = tab.current_repo_path()
+            if path:
+                self._tabs.setTabToolTip(idx, path)
+
+    def _current_tab(self) -> RepoTab | None:
+        w = self._tabs.currentWidget()
+        return w if isinstance(w, RepoTab) else None
+
+    # ── State persistence ─────────────────────────────────────────────────────
 
     def _restore_state(self) -> None:
         qs = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+
         geom = qs.value("mainwindow/geometry")
         if isinstance(geom, QByteArray):
             self.restoreGeometry(geom)
-        splitter_state = qs.value("mainwindow/splitter")
-        if isinstance(splitter_state, QByteArray):
-            self._splitter.restoreState(splitter_state)
+
+        paths = qs.value("mainwindow/open_repos", [])
+        if isinstance(paths, str):
+            paths = [paths]
+        if paths:
+            # Replace the default empty tab with the first repo
+            first_tab = self._current_tab()
+            if first_tab:
+                first_tab.open_repo(paths[0])
+            for path in paths[1:]:
+                self._add_tab(repo_path=path)
 
     def closeEvent(self, event) -> None:
         qs = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
         qs.setValue("mainwindow/geometry", self.saveGeometry())
-        qs.setValue("mainwindow/splitter", self._splitter.saveState())
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait()
+
+        open_repos = []
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, RepoTab) and tab.current_repo_path():
+                open_repos.append(tab.current_repo_path())
+                tab.cancel_scan()
+
+        qs.setValue("mainwindow/open_repos", open_repos)
         super().closeEvent(event)
 
-    # ── Slots ────────────────────────────────────────────────────────────────
-
-    @pyqtSlot(str)
-    def _on_repo_changed(self, path: str) -> None:
-        self._repo_path = path
-        self._detail_panel.set_repo_path(path)
-        self._detail_panel.clear()
-        self._start_scan(path)
-
-    def _start_scan(self, path: str) -> None:
-        from gitbroom.ui.workers import RepoScanWorker
-
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait()
-
-        self._branch_table.clear()
-        self._progress.setVisible(True)
-        self._progress.setRange(0, 0)
-        self._status_bar.showMessage(f"Taranıyor: {path} …")
-        self._btn_delete.setEnabled(False)
-
-        self._worker = RepoScanWorker(path, self._settings)
-        self._worker.progress.connect(self._on_scan_progress)
-        self._worker.branch_found.connect(self._on_branch_found)
-        self._worker.finished.connect(self._on_scan_finished)
-        self._worker.error.connect(self._on_scan_error)
-        self._worker.start()
-
-    @pyqtSlot(int, int, str)
-    def _on_scan_progress(self, current: int, total: int, name: str) -> None:
-        self._progress.setRange(0, total)
-        self._progress.setValue(current)
-        self._status_bar.showMessage(f"Analiz ediliyor: {name} ({current}/{total})")
-
-    @pyqtSlot(object)
-    def _on_branch_found(self, branch: object) -> None:
-        from gitbroom.core.models import BranchInfo
-        b = branch  # type: ignore[assignment]
-        if isinstance(b, BranchInfo) and b.name in self._settings.protected_branches:
-            return
-        self._branch_table.add_branch(branch)  # type: ignore[arg-type]
-
-    @pyqtSlot(list)
-    def _on_scan_finished(self, branches: list) -> None:
-        self._progress.setVisible(False)
-        n = len(branches)
-        self._status_bar.showMessage(f"Tamamlandı — {n} branch bulundu.")
-        logger.info("Scan complete: %d branches in %s", n, self._repo_path)
-
-    @pyqtSlot(str)
-    def _on_scan_error(self, message: str) -> None:
-        self._progress.setVisible(False)
-        self._status_bar.showMessage(f"Hata: {message}")
-        logger.error("Scan error: %s", message)
-        QMessageBox.warning(self, "Tarama Hatası", message)
-
-    @pyqtSlot(int)
-    def _on_selection_changed(self, count: int) -> None:
-        self._selection_label.setText(f"Seçili: {count} branch")
-        self._btn_delete.setEnabled(count > 0)
-
-    @pyqtSlot(object)
-    def _on_branch_selected(self, branch: object) -> None:
-        if branch is None:
-            self._detail_panel.clear()
-        else:
-            self._detail_panel.show_branch(branch)  # type: ignore[arg-type]
-
-    @pyqtSlot(list)
-    def _on_delete_requested(self, branches: list) -> None:
-        self._show_delete_dialog(branches)
-
-    def _on_delete_selected(self) -> None:
-        self._show_delete_dialog(self._branch_table.checked_branches())
-
-    def _show_delete_dialog(self, branches: list) -> None:
-        if not branches or not self._repo_path:
-            return
-        from gitbroom.ui.widgets.delete_dialog import DeleteDialog
-        dialog = DeleteDialog(branches, self._repo_path, self._settings, self)
-        if dialog.exec():
-            self._detail_panel.clear()
-            deleted_names = {
-                r.branch_name
-                for r in dialog.deletion_results
-                if r.local_deleted or r.remote_deleted
-            }
-            if deleted_names:
-                self._branch_table.remove_branches(deleted_names)
-                self._status_bar.showMessage(f"{len(deleted_names)} branch silindi.")
-
-    def _apply_filter(self, mode: str) -> None:
-        self._btn_filter_all.setChecked(mode == "all")
-        self._btn_filter_mine.setChecked(mode == "mine")
-        self._btn_filter_merged.setChecked(mode == "merged")
-        self._btn_filter_stale.setChecked(mode == "stale")
-
-        text = self._search_box.text()
-        if mode == "merged":
-            self._branch_table.apply_filter(text=text, show_merged=True)
-        elif mode == "stale":
-            self._branch_table.apply_filter(text=text, show_stale=True)
-        elif mode == "mine":
-            self._branch_table.apply_filter(
-                text=text,
-                mine_email=self._git_user_email or None,
-                mine_name=self._git_user_name or None,
-            )
-        else:
-            self._branch_table.apply_filter(text=text)
-
-    def _on_search(self, text: str) -> None:
-        show_merged = True if self._btn_filter_merged.isChecked() else None
-        show_stale = True if self._btn_filter_stale.isChecked() else None
-        is_mine = self._btn_filter_mine.isChecked()
-        self._branch_table.apply_filter(
-            text=text,
-            show_merged=show_merged,
-            show_stale=show_stale,
-            mine_email=self._git_user_email or None if is_mine else None,
-            mine_name=self._git_user_name or None if is_mine else None,
-        )
-
-    def _fetch_git_user_info(self) -> tuple[str, str]:
-        try:
-            import subprocess
-            name = subprocess.run(
-                ["git", "config", "user.name"],
-                capture_output=True, text=True, timeout=3,
-            ).stdout.strip()
-            email = subprocess.run(
-                ["git", "config", "user.email"],
-                capture_output=True, text=True, timeout=3,
-            ).stdout.strip()
-            return name, email
-        except Exception:
-            return "", ""
+    # ── Toolbar slots ─────────────────────────────────────────────────────────
 
     def _on_open_settings(self) -> None:
         from gitbroom.ui.widgets.settings_dialog import SettingsDialog
@@ -367,15 +211,17 @@ class MainWindow(QMainWindow):
         dialog.settings_changed.connect(self._on_settings_changed)
         dialog.exec()
 
-    @pyqtSlot(object)
     def _on_settings_changed(self, new_settings: object) -> None:
         self._settings = new_settings  # type: ignore[assignment]
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
             self._theme.apply(app, self._settings.theme)  # type: ignore[arg-type]
-        if self._repo_path:
-            self._start_scan(self._repo_path)
+        # Propagate new settings to all open tabs
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, RepoTab):
+                tab.reload_settings(self._settings)  # type: ignore[arg-type]
 
     def _on_about(self) -> None:
         QMessageBox.about(
@@ -387,12 +233,26 @@ class MainWindow(QMainWindow):
             "Lisans: MIT",
         )
 
-    @pyqtSlot()
     def _on_toggle_theme(self) -> None:
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
             next_theme = self._theme.toggle(app)  # type: ignore[arg-type]
             self._settings.theme = next_theme
-            icon = "☀️" if next_theme == "light" else "🌙"
-            self._btn_theme.setText(icon)
+            icon_text = "☀️" if next_theme == "light" else "🌙"
+            self._btn_theme.setText(icon_text)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _fetch_git_user_info() -> tuple[str, str]:
+        try:
+            name = subprocess.run(
+                ["git", "config", "user.name"], capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+            email = subprocess.run(
+                ["git", "config", "user.email"], capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+            return name, email
+        except Exception:
+            return "", ""

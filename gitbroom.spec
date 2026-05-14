@@ -35,6 +35,7 @@ a = Analysis(
         'gitbroom.ui.widgets.branch_table',
         'gitbroom.ui.widgets.commit_detail_dialog',
         'gitbroom.ui.widgets.delete_dialog',
+        'gitbroom.ui.widgets.repo_tab',
         'gitbroom.ui.widgets.diff_highlighter',
         'gitbroom.ui.widgets.repo_selector',
         'gitbroom.ui.widgets.settings_dialog',
