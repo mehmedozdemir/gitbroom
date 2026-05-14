@@ -34,6 +34,7 @@ class RepoTab(QWidget):
         super().__init__(parent)
         self._settings = settings
         self._repo_path: str | None = None
+        self._repo_folder: str = ""
         self._worker = None
         self._build_ui()
 
@@ -189,8 +190,8 @@ class RepoTab(QWidget):
     def _on_repo_changed(self, path: str) -> None:
         self._repo_path = path
         self._detail_panel.set_repo_path(path)
-        folder = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-        self.title_changed.emit(folder or path)
+        self._repo_folder = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or path
+        self.title_changed.emit(self._repo_folder)
         self._start_scan(path)
 
     def _on_scan_progress(self, current: int, total: int, name: str) -> None:
@@ -209,6 +210,8 @@ class RepoTab(QWidget):
         self._progress.setVisible(False)
         n = len(branches)
         self.status_changed.emit(f"Tamamlandı — {n} branch bulundu.")
+        if self._repo_folder:
+            self.title_changed.emit(f"{self._repo_folder} ({n})")
         logger.info("Scan complete: %d branches in %s", n, self._repo_path)
 
     def _on_scan_error(self, message: str) -> None:

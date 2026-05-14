@@ -101,9 +101,11 @@ class MainWindow(QMainWindow):
         self._tabs.setDocumentMode(True)
         self._tabs.tabCloseRequested.connect(self._on_close_tab)
         self._tabs.currentChanged.connect(self._on_tab_changed)
+        self._tabs.tabBar().setStyleSheet("QTabBar::tab { min-width: 180px; }")
 
         # "+" button on the tab bar
-        self._btn_new_tab = QPushButton("+")
+        self._btn_new_tab = QPushButton()
+        self._btn_new_tab.setIcon(icon("add"))
         self._btn_new_tab.setFixedSize(28, 24)
         self._btn_new_tab.setToolTip("Yeni sekme  (Ctrl+T)")
         self._btn_new_tab.setFlat(True)
