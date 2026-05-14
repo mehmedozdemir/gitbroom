@@ -4,13 +4,15 @@ import logging
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QProgressBar,
-    QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -160,6 +162,25 @@ class RepoTab(QWidget):
         self._btn_delete.setShortcut("Delete")
         self._btn_delete.clicked.connect(self._on_delete_selected)
         layout.addWidget(self._btn_delete)
+
+        self._btn_summary = QPushButton("📊  Özet")
+        self._btn_summary.setToolTip("Tarama özetini göster")
+        self._btn_summary.setEnabled(False)
+        self._btn_summary.clicked.connect(self._on_show_summary)
+        layout.addWidget(self._btn_summary)
+
+        self._btn_export = QToolButton()
+        self._btn_export.setText("Dışa Aktar ▾")
+        self._btn_export.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._btn_export.setEnabled(False)
+        export_menu = QMenu(self._btn_export)
+        export_menu.addAction("CSV (.csv)",      lambda: self._on_export("csv"))
+        export_menu.addAction("Markdown (.md)", lambda: self._on_export("md"))
+        export_menu.addAction("Excel (.xlsx)",  lambda: self._on_export("xlsx"))
+        export_menu.addAction("PDF (.pdf)",     lambda: self._on_export("pdf"))
+        self._btn_export.setMenu(export_menu)
+        layout.addWidget(self._btn_export)
+
         return bar
 
     # ── Scan ─────────────────────────────────────────────────────────────────
@@ -176,6 +197,8 @@ class RepoTab(QWidget):
         self._progress.setVisible(True)
         self._progress.setRange(0, 0)
         self._btn_delete.setEnabled(False)
+        self._btn_summary.setEnabled(False)
+        self._btn_export.setEnabled(False)
         self.status_changed.emit(f"Taranıyor: {path} …")
 
         self._worker = RepoScanWorker(path, self._settings)
@@ -212,6 +235,9 @@ class RepoTab(QWidget):
         self.status_changed.emit(f"Tamamlandı — {n} branch bulundu.")
         if self._repo_folder:
             self.title_changed.emit(f"{self._repo_folder} ({n})")
+        has_data = n > 0
+        self._btn_summary.setEnabled(has_data)
+        self._btn_export.setEnabled(has_data)
         logger.info("Scan complete: %d branches in %s", n, self._repo_path)
 
     def _on_scan_error(self, message: str) -> None:
@@ -286,6 +312,46 @@ class RepoTab(QWidget):
             mine_email=email or None if is_mine else None,
             mine_name=name or None if is_mine else None,
         )
+
+    def _on_show_summary(self) -> None:
+        from gitbroom.ui.widgets.summary_dialog import SummaryDialog
+        branches = self._branch_table.visible_branches()
+        dialog = SummaryDialog(branches, repo_name=self._repo_folder, parent=self)
+        dialog.exec()
+
+    def _on_export(self, fmt: str) -> None:
+        from pathlib import Path
+        from gitbroom.ui.exporters import ExportManager
+
+        filters = {
+            "csv":  ("CSV Dosyası (*.csv)", ".csv"),
+            "md":   ("Markdown Dosyası (*.md)", ".md"),
+            "xlsx": ("Excel Dosyası (*.xlsx)", ".xlsx"),
+            "pdf":  ("PDF Dosyası (*.pdf)", ".pdf"),
+        }
+        label, ext = filters[fmt]
+        default_name = f"{self._repo_folder or 'branches'}_export{ext}"
+
+        path_str, _ = QFileDialog.getSaveFileName(self, "Dışa Aktar", default_name, label)
+        if not path_str:
+            return
+
+        path = Path(path_str)
+        branches = self._branch_table.visible_branches()
+        manager = ExportManager()
+        try:
+            if fmt == "csv":
+                manager.to_csv(branches, path)
+            elif fmt == "md":
+                manager.to_markdown(branches, path)
+            elif fmt == "xlsx":
+                manager.to_excel(branches, path)
+            elif fmt == "pdf":
+                manager.to_pdf(branches, path, repo_name=self._repo_folder)
+            self.status_changed.emit(f"Dışa aktarıldı: {path.name}")
+        except Exception as exc:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Dışa Aktarma Hatası", str(exc))
 
     @staticmethod
     def _get_git_user_info() -> tuple[str, str]:

@@ -144,6 +144,9 @@ class BranchTableModel(QAbstractTableModel):
         ]
         self.endResetModel()
 
+    def visible_branches(self) -> list[BranchInfo]:
+        return list(self._filtered)
+
     def checked_branches(self) -> list[BranchInfo]:
         return [b for b in self._filtered if b.name in self._checked]
 

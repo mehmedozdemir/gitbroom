@@ -90,6 +90,9 @@ class BranchTable(QWidget):
             remote_only=remote_only,
         )
 
+    def visible_branches(self) -> list[BranchInfo]:
+        return self._model.visible_branches()
+
     def checked_branches(self) -> list[BranchInfo]:
         return self._model.checked_branches()
 
