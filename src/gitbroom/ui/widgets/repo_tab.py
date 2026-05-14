@@ -5,6 +5,7 @@ import logging
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -97,6 +98,26 @@ class RepoTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
+        self._btn_summary = QPushButton("📊  Özet")
+        self._btn_summary.setToolTip("Tarama özetini göster")
+        self._btn_summary.setEnabled(False)
+        self._btn_summary.clicked.connect(self._on_show_summary)
+        layout.addWidget(self._btn_summary)
+
+        self._btn_export = QToolButton()
+        self._btn_export.setText("Dışa Aktar ▾")
+        self._btn_export.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._btn_export.setEnabled(False)
+        export_menu = QMenu(self._btn_export)
+        export_menu.addAction("CSV (.csv)",      lambda: self._on_export("csv"))
+        export_menu.addAction("Markdown (.md)", lambda: self._on_export("md"))
+        export_menu.addAction("Excel (.xlsx)",  lambda: self._on_export("xlsx"))
+        export_menu.addAction("PDF (.pdf)",     lambda: self._on_export("pdf"))
+        self._btn_export.setMenu(export_menu)
+        layout.addWidget(self._btn_export)
+
+        layout.addWidget(self._separator())
+
         self._btn_filter_all = QPushButton("≡  Hepsi")
         self._btn_filter_mine = QPushButton("👤  Benim")
         self._btn_filter_merged = QPushButton("✓  Merged")
@@ -162,24 +183,6 @@ class RepoTab(QWidget):
         self._btn_delete.setShortcut("Delete")
         self._btn_delete.clicked.connect(self._on_delete_selected)
         layout.addWidget(self._btn_delete)
-
-        self._btn_summary = QPushButton("📊  Özet")
-        self._btn_summary.setToolTip("Tarama özetini göster")
-        self._btn_summary.setEnabled(False)
-        self._btn_summary.clicked.connect(self._on_show_summary)
-        layout.addWidget(self._btn_summary)
-
-        self._btn_export = QToolButton()
-        self._btn_export.setText("Dışa Aktar ▾")
-        self._btn_export.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._btn_export.setEnabled(False)
-        export_menu = QMenu(self._btn_export)
-        export_menu.addAction("CSV (.csv)",      lambda: self._on_export("csv"))
-        export_menu.addAction("Markdown (.md)", lambda: self._on_export("md"))
-        export_menu.addAction("Excel (.xlsx)",  lambda: self._on_export("xlsx"))
-        export_menu.addAction("PDF (.pdf)",     lambda: self._on_export("pdf"))
-        self._btn_export.setMenu(export_menu)
-        layout.addWidget(self._btn_export)
 
         return bar
 
@@ -352,6 +355,13 @@ class RepoTab(QWidget):
         except Exception as exc:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Dışa Aktarma Hatası", str(exc))
+
+    @staticmethod
+    def _separator() -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        return line
 
     @staticmethod
     def _get_git_user_info() -> tuple[str, str]:
