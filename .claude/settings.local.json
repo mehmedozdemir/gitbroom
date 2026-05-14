@@ -6,7 +6,12 @@
       "Bash(.venv\\\\Scripts\\\\python.exe -m gitbroom)",
       "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -m gitbroom)",
       "PowerShell(& \".venv\\\\Scripts\\\\pyinstaller.exe\" gitbroom.spec --noconfirm 2>&1)",
-      "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -m gitbroom 2>&1)"
+      "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -m gitbroom 2>&1)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -c \"from gitbroom.ui.widgets.repo_tab import RepoTab; print\\('OK'\\)\" 2>&1)",
+      "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -m gitbroom 2>&1; echo \"Exit: $LASTEXITCODE\")"
     ]
   }
 }
