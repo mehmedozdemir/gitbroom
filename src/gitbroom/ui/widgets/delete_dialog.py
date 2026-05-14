@@ -31,6 +31,7 @@ class _DeleteWorker(QThread):
         delete_local: bool,
         delete_remote: bool,
         create_backup: bool,
+        force_local: bool,
     ) -> None:
         super().__init__()
         self._branches = branches
@@ -38,6 +39,7 @@ class _DeleteWorker(QThread):
         self._delete_local = delete_local
         self._delete_remote = delete_remote
         self._create_backup = create_backup
+        self._force_local = force_local
         self.results: list = []
 
     def run(self) -> None:
@@ -60,6 +62,7 @@ class _DeleteWorker(QThread):
                     delete_local=self._delete_local,
                     delete_remote=self._delete_remote,
                     create_backup=self._create_backup,
+                    force_local=self._force_local,
                 )
                 r = results[0]
                 self.results.append(r)
@@ -143,9 +146,13 @@ class DeleteDialog(QDialog):
         self._chk_backup = QCheckBox("Silmeden önce backup tag oluştur")
         self._chk_backup.setChecked(self._settings.create_backup_tag)
 
+        self._chk_force = QCheckBox("Force delete (squash/rebase merge'lerde gerekli)")
+        self._chk_force.setChecked(True)
+
         opt_layout.addWidget(self._chk_local)
         opt_layout.addWidget(self._chk_remote)
         opt_layout.addWidget(self._chk_backup)
+        opt_layout.addWidget(self._chk_force)
 
         warning = QLabel("⚠️  Bu işlem geri alınamaz!\n(Backup tag oluşturulursa kurtarılabilir.)")
         warning.setStyleSheet("color: #fab387;")
@@ -245,6 +252,7 @@ class DeleteDialog(QDialog):
         delete_local = self._chk_local.isChecked()
         delete_remote = self._chk_remote.isChecked()
         create_backup = self._chk_backup.isChecked()
+        force_local = self._chk_force.isChecked()
 
         self._timer.stop()
         self._options_widget.setVisible(False)
@@ -258,6 +266,7 @@ class DeleteDialog(QDialog):
             delete_local=delete_local,
             delete_remote=delete_remote,
             create_backup=create_backup,
+            force_local=force_local,
         )
         self._worker.branch_done.connect(self._on_branch_done)
         self._worker.all_done.connect(self._on_all_done)

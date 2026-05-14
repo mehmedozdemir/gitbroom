@@ -30,12 +30,13 @@ class SafeDeleter:
         delete_local: bool,
         delete_remote: bool,
         create_backup: bool,
+        force_local: bool = True,
         remote_name: str = "origin",
     ) -> list[DeletionResult]:
         results: list[DeletionResult] = []
         for name in branches:
             result = self._delete_one(
-                name, repo, delete_local, delete_remote, create_backup, remote_name
+                name, repo, delete_local, delete_remote, create_backup, force_local, remote_name
             )
             results.append(result)
         return results
@@ -47,6 +48,7 @@ class SafeDeleter:
         delete_local: bool,
         delete_remote: bool,
         create_backup: bool,
+        force_local: bool,
         remote_name: str,
     ) -> DeletionResult:
         self._safety_check(branch_name, repo)
@@ -66,7 +68,7 @@ class SafeDeleter:
             local_heads = [h for h in repo.heads if h.name == branch_name]
             if local_heads:
                 try:
-                    repo.delete_head(branch_name, force=False)
+                    repo.delete_head(branch_name, force=force_local)
                     local_deleted = True
                 except GitCommandError as e:
                     errors.append(f"Local silme hatası: {e}")
