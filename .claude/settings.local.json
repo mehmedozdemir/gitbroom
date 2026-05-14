@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(.venv\\\\Scripts\\\\python.exe -m pytest tests/ -v --tb=short)",
-      "PowerShell(Get-ChildItem c:\\\\AiProjects\\\\gitbroom\\\\dist\\\\GitBroom\\\\ | Select-Object Name, @{N='Size\\(MB\\)';E={[math]::Round\\($_.Length/1MB,1\\)}} | Sort-Object 'Size\\(MB\\)' -Descending | Select-Object -First 15)"
+      "PowerShell(Get-ChildItem c:\\\\AiProjects\\\\gitbroom\\\\dist\\\\GitBroom\\\\ | Select-Object Name, @{N='Size\\(MB\\)';E={[math]::Round\\($_.Length/1MB,1\\)}} | Sort-Object 'Size\\(MB\\)' -Descending | Select-Object -First 15)",
+      "Bash(.venv\\\\Scripts\\\\python.exe -m gitbroom)",
+      "PowerShell(& \".venv\\\\Scripts\\\\python.exe\" -m gitbroom)"
     ]
   }
 }
