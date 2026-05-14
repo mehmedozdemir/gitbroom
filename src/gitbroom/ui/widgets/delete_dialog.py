@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gitbroom.core.models import AppSettings, BranchInfo
+from gitbroom.ui.theme.icons import icon
 
 _COUNTDOWN_SECS = 2
 
@@ -190,12 +191,14 @@ class DeleteDialog(QDialog):
         btn_layout.addStretch()
 
         self._btn_cancel = QPushButton("İptal")
+        self._btn_cancel.setIcon(icon("cancel"))
         self._btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(self._btn_cancel)
 
         self._btn_delete = QPushButton(
             f"Sil ({len(self._branches)} branch) — {self._countdown}s"
         )
+        self._btn_delete.setIcon(icon("trash"))
         self._btn_delete.setObjectName("dangerButton")
         self._btn_delete.setEnabled(False)
         self._btn_delete.clicked.connect(self._on_confirm)
@@ -295,6 +298,7 @@ class DeleteDialog(QDialog):
         self._log_output.appendPlainText(f"\n{summary}")
 
         self._btn_cancel.setText("Kapat")
+        self._btn_cancel.setIcon(icon("close"))
         self._btn_cancel.setEnabled(True)
         self._btn_cancel.clicked.disconnect()
         self._btn_cancel.clicked.connect(self.accept)

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gitbroom.core.models import AppSettings
+from gitbroom.ui.theme.icons import icon
 
 _MAX_RECENT = 10
 
@@ -40,10 +41,12 @@ class RepoSelector(QWidget):
         layout.addWidget(self._combo, stretch=1)
 
         self._btn_browse = QPushButton("Klasör Seç")
+        self._btn_browse.setIcon(icon("folder"))
         self._btn_browse.clicked.connect(self._on_browse)
         layout.addWidget(self._btn_browse)
 
         self._btn_scan = QPushButton("Tara")
+        self._btn_scan.setIcon(icon("scan"))
         self._btn_scan.setObjectName("primaryButton")
         self._btn_scan.setShortcut("Ctrl+R")
         self._btn_scan.clicked.connect(self._on_scan)

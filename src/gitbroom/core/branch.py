@@ -122,6 +122,7 @@ class BranchAnalyzer:
             last_commit_sha=commit.hexsha,
             last_commit_date=commit_date,
             last_commit_author=commit.author.name or commit.author.email or "Unknown",
+            last_commit_author_email=commit.author.email or "",
             last_commit_message=commit.message.strip().splitlines()[0],
             is_merged=is_merged,
             merge_type=merge_type,

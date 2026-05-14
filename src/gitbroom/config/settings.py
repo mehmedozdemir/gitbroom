@@ -65,6 +65,7 @@ def save_settings(settings: AppSettings, path: Path | None = None) -> None:
     target = path or _config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    protected_str = ", ".join(f'"{b}"' for b in settings.protected_branches)
     lines = [
         "[general]\n",
         f'default_branch = "{settings.default_branch}"\n',
@@ -84,5 +85,8 @@ def save_settings(settings: AppSettings, path: Path | None = None) -> None:
         f"confirm_remote_delete = {str(settings.confirm_remote_delete).lower()}\n",
         f"show_merged_by_default = {str(settings.show_merged_by_default).lower()}\n",
         f"enable_rebase_detection = {str(settings.enable_rebase_detection).lower()}\n",
+        "\n",
+        "[protected]\n",
+        f"branches = [{protected_str}]\n",
     ]
     target.write_text("".join(lines), encoding="utf-8")

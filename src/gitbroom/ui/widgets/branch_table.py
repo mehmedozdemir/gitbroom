@@ -76,6 +76,7 @@ class BranchTable(QWidget):
         show_merged: bool | None = None,
         show_stale: bool | None = None,
         mine_email: str | None = None,
+        mine_name: str | None = None,
         local_only: bool = False,
         remote_only: bool = False,
     ) -> None:
@@ -84,6 +85,7 @@ class BranchTable(QWidget):
             show_merged=show_merged,
             show_stale=show_stale,
             mine_email=mine_email,
+            mine_name=mine_name,
             local_only=local_only,
             remote_only=remote_only,
         )

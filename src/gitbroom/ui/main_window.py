@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gitbroom.core.models import AppSettings
+from gitbroom.ui.theme.icons import icon
 from gitbroom.ui.theme.theme import ThemeManager
 from gitbroom.ui.widgets.branch_detail import BranchDetailPanel
 from gitbroom.ui.widgets.branch_table import BranchTable
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("GitBroom — Git Branch Temizleyici")
         self.resize(1200, 750)
         self.setMinimumSize(900, 600)
+        self._git_user_name, self._git_user_email = self._fetch_git_user_info()
 
     def _build_ui(self) -> None:
         self._build_toolbar()
@@ -95,13 +97,24 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
+        if self._git_user_name or self._git_user_email:
+            user_text = self._git_user_name or ""
+            if self._git_user_email:
+                user_text += f"  ‹{self._git_user_email}›"
+            user_label = QLabel(f"👤  {user_text.strip()}")
+            user_label.setStyleSheet("color: #a6adc8; font-size: 12px; padding-right: 8px;")
+            toolbar.addWidget(user_label)
+
         self._btn_settings = QPushButton("Ayarlar")
+        self._btn_settings.setIcon(icon("settings"))
         self._btn_settings.setShortcut("Ctrl+,")
         self._btn_settings.clicked.connect(self._on_open_settings)
         toolbar.addWidget(self._btn_settings)
 
-        self._btn_about = QPushButton("?")
-        self._btn_about.setFixedWidth(28)
+        self._btn_about = QPushButton()
+        self._btn_about.setIcon(icon("info"))
+        self._btn_about.setFixedWidth(32)
+        self._btn_about.setToolTip("Hakkında")
         self._btn_about.clicked.connect(self._on_about)
         toolbar.addWidget(self._btn_about)
 
@@ -117,10 +130,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self._btn_filter_all = QPushButton("Hepsi")
-        self._btn_filter_mine = QPushButton("Benim")
-        self._btn_filter_merged = QPushButton("Merged")
-        self._btn_filter_stale = QPushButton("Stale")
+        self._btn_filter_all = QPushButton("≡  Hepsi")
+        self._btn_filter_mine = QPushButton("👤  Benim")
+        self._btn_filter_merged = QPushButton("✓  Merged")
+        self._btn_filter_stale = QPushButton("⏱  Stale")
 
         for btn in (
             self._btn_filter_all,
@@ -163,10 +176,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._selection_label)
 
         self._btn_select_all = QPushButton("Tümünü Seç")
+        self._btn_select_all.setIcon(icon("check_all"))
         self._btn_select_all.clicked.connect(lambda: self._branch_table.check_all(True))
         layout.addWidget(self._btn_select_all)
 
         self._btn_deselect_all = QPushButton("Seçimi Temizle")
+        self._btn_deselect_all.setIcon(icon("uncheck"))
         self._btn_deselect_all.setShortcut("Escape")
         self._btn_deselect_all.clicked.connect(lambda: self._branch_table.check_all(False))
         layout.addWidget(self._btn_deselect_all)
@@ -174,6 +189,7 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         self._btn_delete = QPushButton("Seçilileri Sil")
+        self._btn_delete.setIcon(icon("trash"))
         self._btn_delete.setObjectName("dangerButton")
         self._btn_delete.setEnabled(False)
         self._btn_delete.setShortcut("Delete")
@@ -243,6 +259,10 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_branch_found(self, branch: object) -> None:
+        from gitbroom.core.models import BranchInfo
+        b = branch  # type: ignore[assignment]
+        if isinstance(b, BranchInfo) and b.name in self._settings.protected_branches:
+            return
         self._branch_table.add_branch(branch)  # type: ignore[arg-type]
 
     @pyqtSlot(list)
@@ -301,36 +321,45 @@ class MainWindow(QMainWindow):
         self._btn_filter_stale.setChecked(mode == "stale")
 
         text = self._search_box.text()
-        mine_email = self._get_git_user_email() if mode == "mine" else None
-
         if mode == "merged":
             self._branch_table.apply_filter(text=text, show_merged=True)
         elif mode == "stale":
             self._branch_table.apply_filter(text=text, show_stale=True)
         elif mode == "mine":
-            self._branch_table.apply_filter(text=text, mine_email=mine_email)
+            self._branch_table.apply_filter(
+                text=text,
+                mine_email=self._git_user_email or None,
+                mine_name=self._git_user_name or None,
+            )
         else:
             self._branch_table.apply_filter(text=text)
 
     def _on_search(self, text: str) -> None:
         show_merged = True if self._btn_filter_merged.isChecked() else None
         show_stale = True if self._btn_filter_stale.isChecked() else None
-        mine_email = self._get_git_user_email() if self._btn_filter_mine.isChecked() else None
+        is_mine = self._btn_filter_mine.isChecked()
         self._branch_table.apply_filter(
-            text=text, show_merged=show_merged, show_stale=show_stale, mine_email=mine_email
+            text=text,
+            show_merged=show_merged,
+            show_stale=show_stale,
+            mine_email=self._git_user_email or None if is_mine else None,
+            mine_name=self._git_user_name or None if is_mine else None,
         )
 
-    def _get_git_user_email(self) -> str | None:
+    def _fetch_git_user_info(self) -> tuple[str, str]:
         try:
             import subprocess
-            result = subprocess.run(
+            name = subprocess.run(
+                ["git", "config", "user.name"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            email = subprocess.run(
                 ["git", "config", "user.email"],
-                capture_output=True, text=True, timeout=3
-            )
-            email = result.stdout.strip()
-            return email if email else None
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            return name, email
         except Exception:
-            return None
+            return "", ""
 
     def _on_open_settings(self) -> None:
         from gitbroom.ui.widgets.settings_dialog import SettingsDialog

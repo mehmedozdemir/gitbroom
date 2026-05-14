@@ -133,13 +133,14 @@ class BranchTableModel(QAbstractTableModel):
         show_merged: bool | None = None,
         show_stale: bool | None = None,
         mine_email: str | None = None,
+        mine_name: str | None = None,
         local_only: bool = False,
         remote_only: bool = False,
     ) -> None:
         self.beginResetModel()
         self._filtered = [
             b for b in self._branches
-            if self._matches(b, text, show_merged, show_stale, mine_email, local_only, remote_only)
+            if self._matches(b, text, show_merged, show_stale, mine_email, mine_name, local_only, remote_only)
         ]
         self.endResetModel()
 
@@ -193,6 +194,7 @@ class BranchTableModel(QAbstractTableModel):
         show_merged: bool | None,
         show_stale: bool | None,
         mine_email: str | None,
+        mine_name: str | None,
         local_only: bool,
         remote_only: bool,
     ) -> bool:
@@ -205,8 +207,12 @@ class BranchTableModel(QAbstractTableModel):
         if show_stale is True:
             if branch.risk_score.level not in (RiskLevel.GREEN, RiskLevel.YELLOW):
                 return False
-        if mine_email:
-            if mine_email.lower() not in branch.last_commit_author.lower():
+        if mine_email or mine_name:
+            author_email = branch.last_commit_author_email.lower()
+            author_name = branch.last_commit_author.lower()
+            email_match = bool(mine_email) and bool(author_email) and mine_email.lower() in author_email
+            name_match = bool(mine_name) and mine_name.lower() in author_name
+            if not email_match and not name_match:
                 return False
         if local_only and not branch.is_local:
             return False

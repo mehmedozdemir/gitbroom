@@ -36,6 +36,7 @@ class BranchInfo:
     last_commit_sha: str
     last_commit_date: datetime
     last_commit_author: str
+    last_commit_author_email: str
     last_commit_message: str
     is_merged: bool
     merge_type: MergeType
@@ -59,6 +60,13 @@ class DeletionResult:
     errors: list[str] = field(default_factory=list)
 
 
+_DEFAULT_PROTECTED_BRANCHES: list[str] = [
+    "main", "master", "develop", "development", "dev",
+    "staging", "stage", "preprod", "pre-prod", "production", "prod",
+    "release", "hotfix", "test", "testing", "qa", "uat",
+]
+
+
 @dataclass
 class AppSettings:
     default_branch: str = "main"
@@ -74,3 +82,4 @@ class AppSettings:
     confirm_remote_delete: bool = True
     show_merged_by_default: bool = True
     enable_rebase_detection: bool = False
+    protected_branches: list[str] = field(default_factory=lambda: list(_DEFAULT_PROTECTED_BRANCHES))

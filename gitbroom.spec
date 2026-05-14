@@ -9,6 +9,7 @@ a = Analysis(
     datas=[
         ('src/gitbroom/ui/theme/style_dark.qss', 'gitbroom/ui/theme'),
         ('src/gitbroom/ui/theme/style_light.qss', 'gitbroom/ui/theme'),
+        ('assets/icons/icon.png', 'assets/icons'),
     ],
     hiddenimports=[
         'gitbroom',
@@ -28,6 +29,7 @@ a = Analysis(
         'gitbroom.ui.main_window',
         'gitbroom.ui.workers',
         'gitbroom.ui.theme.theme',
+        'gitbroom.ui.theme.icons',
         'gitbroom.ui.models.branch_table_model',
         'gitbroom.ui.widgets.branch_detail',
         'gitbroom.ui.widgets.branch_table',
@@ -73,7 +75,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='assets/icons/icon.ico',
 )
 
 coll = COLLECT(
